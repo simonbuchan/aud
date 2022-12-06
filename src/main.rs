@@ -42,38 +42,40 @@ impl Note {
     fn hz(self) -> f32 {
         440.0 * 2f32.powf(self.0 as f32 / 12.0)
     }
+
+    fn sine(self) -> Sine<f32> {
+        sine(self.hz())
+    }
 }
 
 fn main() {
     let config = hack::Config::get();
 
-    let mut source = sine(
-        Key::A.note(4).hz().wrapped() + sine(50.0), // +- 1.0 Hz ~= ~14c
-    ).wrapped() *
-        adsr(
-            0.0..3.1,
-            8.0,
-            15.0,
-            0.6,
-            1.0,
-        ) +
-        sine(Key::C.note(4).hz().wrapped() + sine(50.0)).wrapped() *
+    let mut source =
+        Key::A.note(4).sine().vibrato(2.0, 6.0).wrap() *
             adsr(
-                1.0..3.2,
+                0.0..3.1,
                 8.0,
                 15.0,
                 0.6,
                 1.0,
             ) +
-        sine(Key::F.note(4).hz().wrapped() + sine(50.0)).wrapped() *
-            adsr(
-                2.0..3.4,
-                8.0,
-                15.0,
-                0.6,
-                1.0,
-            )
-        ;
+            Key::C.note(4).sine().vibrato(50.0, 8.0).wrap() *
+                adsr(
+                    1.0..3.2,
+                    8.0,
+                    15.0,
+                    0.6,
+                    1.0,
+                ) +
+            Key::F.note(4).sine().vibrato(50.0, 14.0).wrap() *
+                adsr(
+                    2.0..3.4,
+                    8.0,
+                    15.0,
+                    0.6,
+                    1.0,
+                );
 
     let (tx, rx) = std::sync::mpsc::channel();
 
@@ -141,7 +143,7 @@ impl PartialOrd for SampleTime {
 trait Source {
     type Sample;
 
-    fn wrapped(self) -> Wrapped<Self> where Self: Sized {
+    fn wrap(self) -> Wrapped<Self> where Self: Sized {
         Wrapped(self)
     }
 
@@ -159,6 +161,12 @@ impl Source for f32 {
 }
 
 struct Wrapped<T>(T);
+
+impl<T> Wrapped<T> {
+    fn unwrap(self) -> T {
+        self.0
+    }
+}
 
 impl<T> Source for Wrapped<T>
     where T: Source
@@ -205,6 +213,13 @@ struct Sine<Hz> {
     phase: f32,
 }
 
+impl<Hz> Sine<Hz> {
+    fn vibrato<VibHz>(self, hz: VibHz, cents: f32) -> Sine<Add<Hz, Mul<Sine<VibHz>, f32>>> {
+        let modulation = Mul { left: sine(hz), right: cents / 14.0 };
+        Sine { hz: Add { left: self.hz, right: modulation }, phase: self.phase }
+    }
+}
+
 impl<Hz> Source for Sine<Hz>
     where Hz: Source<Sample=f32>,
 {
@@ -220,7 +235,7 @@ impl<Hz> Source for Sine<Hz>
     }
 }
 
-fn sine<Hz>(hz: Hz) -> Sine<Hz> where Hz: Source<Sample=f32> {
+fn sine<Hz>(hz: Hz) -> Sine<Hz> {
     Sine { hz, phase: 0.0 }
 }
 
